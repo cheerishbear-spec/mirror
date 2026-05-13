@@ -254,37 +254,15 @@ MIRROR_SELF = os.getenv("MIRROR_SELF", "false").lower() in ("1", "true", "yes")
 def should_mirror(message: discord.Message) -> bool:
     """Cek apakah pesan ini termasuk yang mau di-mirror."""
     guild_id = message.guild.id if message.guild else None
-    log.debug(
-        "Incoming msg: author=%s, channel=%s, guild=%s, content=%r",
-        message.author.id,
-        message.channel.id,
-        guild_id,
-        (message.content or "")[:60],
-    )
 
     if message.author.id == client.user.id and not MIRROR_SELF:
-        log.info("Skip: pesan dari akun sendiri (aktifkan MIRROR_SELF=true untuk override)")
         return False
 
     if MIRROR_CHANNEL_IDS:
-        if message.channel.id in MIRROR_CHANNEL_IDS:
-            return True
-        log.info(
-            "Skip: channel %s ga ada di filter %s",
-            message.channel.id,
-            MIRROR_CHANNEL_IDS,
-        )
-        return False
+        return message.channel.id in MIRROR_CHANNEL_IDS
 
     if MIRROR_GUILD_IDS:
-        if guild_id is not None and guild_id in MIRROR_GUILD_IDS:
-            return True
-        log.info(
-            "Skip: guild %s ga ada di filter %s",
-            guild_id,
-            MIRROR_GUILD_IDS,
-        )
-        return False
+        return guild_id is not None and guild_id in MIRROR_GUILD_IDS
 
     return True
 
@@ -331,14 +309,6 @@ async def on_ready():
 
 @client.event
 async def on_message(message: discord.Message):
-    # Log SETIAP pesan masuk sebelum filter, biar keliatan event beneran nyampe
-    log.info(
-        "[RECV] guild=%s channel=%s author=%s content=%r",
-        message.guild.id if message.guild else "DM",
-        message.channel.id,
-        message.author,
-        (message.content or "")[:80],
-    )
     if not should_mirror(message):
         return
 
@@ -346,6 +316,15 @@ async def on_message(message: discord.Message):
     channel_name = getattr(message.channel, "name", "direct-message")
     author = str(message.author)
     content = message.content or ""
+
+    # Log cuma pesan yang ke-mirror aja biar ga spam
+    log.info(
+        "[MIRROR] %s #%s | %s: %s",
+        guild_name,
+        channel_name,
+        author,
+        (content or "(no text)")[:80],
+    )
 
     # --- Header + body text ---
     header = (
