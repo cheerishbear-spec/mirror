@@ -276,13 +276,40 @@ async def on_ready():
         MIRROR_GUILD_IDS or "ALL",
     )
 
+    # Validate: apakah channel ID yang dikasih beneran ada & bisa diakses?
+    for cid in MIRROR_CHANNEL_IDS:
+        ch = client.get_channel(cid)
+        if ch is None:
+            try:
+                ch = await client.fetch_channel(cid)
+            except Exception as e:
+                log.warning(
+                    "⚠️  Channel %s NOT FOUND / no access. "
+                    "Channel ID salah atau akun lu ga bisa baca channel itu. Error: %s",
+                    cid, e,
+                )
+                continue
+        guild_info = f"guild={ch.guild.id} ({ch.guild.name})" if getattr(ch, "guild", None) else "DM"
+        log.info(
+            "✅ Channel %s OK: #%s type=%s %s",
+            cid, getattr(ch, "name", "?"), ch.type, guild_info,
+        )
+
+    # Validate guild IDs
+    for gid in MIRROR_GUILD_IDS:
+        g = client.get_guild(gid)
+        if g is None:
+            log.warning(
+                "⚠️  Guild %s NOT FOUND. Akun lu kayaknya ga join server itu.", gid,
+            )
+        else:
+            log.info("✅ Guild %s OK: %s (channels=%d)", gid, g.name, len(g.channels))
+
     # Log semua guild yang akun ini join + subscribe biar Discord kirim event pesan.
     # Discord user account kadang ga auto-receive pesan dari channel yang belum
     # "dibuka" di client (lazy loading). Subscribe memaksa Discord kirim events.
-    log.info("Joined %d guilds:", len(client.guilds))
+    log.info("Joined %d guilds total", len(client.guilds))
     for g in client.guilds:
-        log.info("  - %s (id=%s, channels=%d)", g.name, g.id, len(g.channels))
-        # Subscribe kalau guild ini termasuk filter (atau no filter)
         should_subscribe = (
             not MIRROR_GUILD_IDS and not MIRROR_CHANNEL_IDS
         ) or (
@@ -293,9 +320,9 @@ async def on_ready():
         if should_subscribe:
             try:
                 await g.subscribe()
-                log.info("    ↳ subscribed to events for %s", g.name)
+                log.info("↳ subscribed to events: %s (id=%s)", g.name, g.id)
             except Exception as e:
-                log.warning("    ↳ gagal subscribe ke %s: %s", g.name, e)
+                log.warning("↳ gagal subscribe ke %s: %s", g.name, e)
 
     try:
         await tg_bot.send_message(
