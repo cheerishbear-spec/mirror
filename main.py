@@ -69,8 +69,9 @@ if missing:
     sys.exit(1)
 
 # --- Logging -----------------------------------------------------------------
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 log = logging.getLogger("mirror")
@@ -247,15 +248,44 @@ def format_embed(embed: discord.Embed) -> str:
 client = discord.Client()
 
 
+MIRROR_SELF = os.getenv("MIRROR_SELF", "false").lower() in ("1", "true", "yes")
+
+
 def should_mirror(message: discord.Message) -> bool:
     """Cek apakah pesan ini termasuk yang mau di-mirror."""
-    if message.author.id == client.user.id:
+    guild_id = message.guild.id if message.guild else None
+    log.debug(
+        "Incoming msg: author=%s, channel=%s, guild=%s, content=%r",
+        message.author.id,
+        message.channel.id,
+        guild_id,
+        (message.content or "")[:60],
+    )
+
+    if message.author.id == client.user.id and not MIRROR_SELF:
+        log.info("Skip: pesan dari akun sendiri (aktifkan MIRROR_SELF=true untuk override)")
         return False
+
     if MIRROR_CHANNEL_IDS:
-        return message.channel.id in MIRROR_CHANNEL_IDS
+        if message.channel.id in MIRROR_CHANNEL_IDS:
+            return True
+        log.info(
+            "Skip: channel %s ga ada di filter %s",
+            message.channel.id,
+            MIRROR_CHANNEL_IDS,
+        )
+        return False
+
     if MIRROR_GUILD_IDS:
-        guild = getattr(message, "guild", None)
-        return guild is not None and guild.id in MIRROR_GUILD_IDS
+        if guild_id is not None and guild_id in MIRROR_GUILD_IDS:
+            return True
+        log.info(
+            "Skip: guild %s ga ada di filter %s",
+            guild_id,
+            MIRROR_GUILD_IDS,
+        )
+        return False
+
     return True
 
 
