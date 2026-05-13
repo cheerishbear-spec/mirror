@@ -297,6 +297,28 @@ async def on_ready():
         MIRROR_CHANNEL_IDS or "ALL",
         MIRROR_GUILD_IDS or "ALL",
     )
+
+    # Log semua guild yang akun ini join + subscribe biar Discord kirim event pesan.
+    # Discord user account kadang ga auto-receive pesan dari channel yang belum
+    # "dibuka" di client (lazy loading). Subscribe memaksa Discord kirim events.
+    log.info("Joined %d guilds:", len(client.guilds))
+    for g in client.guilds:
+        log.info("  - %s (id=%s, channels=%d)", g.name, g.id, len(g.channels))
+        # Subscribe kalau guild ini termasuk filter (atau no filter)
+        should_subscribe = (
+            not MIRROR_GUILD_IDS and not MIRROR_CHANNEL_IDS
+        ) or (
+            g.id in MIRROR_GUILD_IDS
+        ) or (
+            any(c.id in MIRROR_CHANNEL_IDS for c in g.channels)
+        )
+        if should_subscribe:
+            try:
+                await g.subscribe()
+                log.info("    ↳ subscribed to events for %s", g.name)
+            except Exception as e:
+                log.warning("    ↳ gagal subscribe ke %s: %s", g.name, e)
+
     try:
         await tg_bot.send_message(
             chat_id=TELEGRAM_CHAT_ID,
@@ -309,6 +331,14 @@ async def on_ready():
 
 @client.event
 async def on_message(message: discord.Message):
+    # Log SETIAP pesan masuk sebelum filter, biar keliatan event beneran nyampe
+    log.info(
+        "[RECV] guild=%s channel=%s author=%s content=%r",
+        message.guild.id if message.guild else "DM",
+        message.channel.id,
+        message.author,
+        (message.content or "")[:80],
+    )
     if not should_mirror(message):
         return
 
