@@ -9,6 +9,7 @@ Fitur:
 - Support Discord embeds (title, description, fields, images, thumbnail)
 - Filter by channel ID atau guild (server) ID
 - Filter by keyword (case-insensitive)
+- Custom channel labels (kasih nama panggilan ke channel ID)
 
 PERINGATAN:
 Script ini menggunakan Discord USER TOKEN (self-bot), yang MELANGGAR
@@ -21,7 +22,7 @@ import io
 import logging
 import os
 import sys
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 import aiohttp
 import discord  # discord.py-self
@@ -58,6 +59,24 @@ _raw_keywords = os.getenv("KEYWORDS", "").strip()
 KEYWORDS: List[str] = [
     kw.strip().lower() for kw in _raw_keywords.split(",") if kw.strip()
 ]
+
+# Custom channel labels — kasih nama panggilan ke channel ID.
+# Format: <channel_id>:<label>|<channel_id>:<label>|...
+# Pisah antar item dengan `|` (pipe), pisah ID & label dengan `:` (colon).
+# Contoh: 1234567890:NFT Talk|9876543210:Airdrop Hunters
+# Kalau ga ada label buat suatu channel, otomatis pake nama channel asli dari Discord.
+_raw_labels = os.getenv("CHANNEL_LABELS", "").strip()
+CHANNEL_LABELS: Dict[int, str] = {}
+if _raw_labels:
+    for item in _raw_labels.split("|"):
+        item = item.strip()
+        if not item or ":" not in item:
+            continue
+        cid_str, label = item.split(":", 1)
+        try:
+            CHANNEL_LABELS[int(cid_str.strip())] = label.strip()
+        except ValueError:
+            print(f"[WARN] CHANNEL_LABELS: ID '{cid_str}' bukan angka, di-skip")
 
 # Telegram limit untuk upload via bot: 50 MB. Kalau lebih, fallback ke link.
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
@@ -315,6 +334,10 @@ async def on_ready():
         MIRROR_GUILD_IDS or "ALL",
         KEYWORDS or "ALL (no filter)",
     )
+    if CHANNEL_LABELS:
+        log.info("Custom channel labels:")
+        for cid, label in CHANNEL_LABELS.items():
+            log.info("  - %s → '%s'", cid, label)
 
     # Validate: apakah channel ID yang dikasih beneran ada & bisa diakses?
     for cid in MIRROR_CHANNEL_IDS:
@@ -378,23 +401,37 @@ async def on_message(message: discord.Message):
         return
 
     guild_name = message.guild.name if message.guild else "DM"
-    channel_name = getattr(message.channel, "name", "direct-message")
+    real_channel_name = getattr(message.channel, "name", "direct-message")
+    # Pake custom label kalau ada, kalau ga pake nama channel asli
+    display_label = CHANNEL_LABELS.get(message.channel.id, real_channel_name)
+    has_custom_label = message.channel.id in CHANNEL_LABELS
     author = str(message.author)
     content = message.content or ""
 
     log.info(
-        "[MIRROR] %s #%s | %s: %s",
+        "[MIRROR] %s #%s%s | %s: %s",
         guild_name,
-        channel_name,
+        display_label,
+        f" (real: #{real_channel_name})" if has_custom_label else "",
         author,
         (content or "(no text)")[:80],
     )
 
     # --- Header + body text ---
-    header = (
-        f"*{escape_md(guild_name)}* \\| *\\#{escape_md(channel_name)}*\n"
-        f"👤 *{escape_md(author)}*"
-    )
+    if has_custom_label:
+        # Format: 📢 NFT Talk
+        #         NamaServer | #channel-asli
+        #         👤 author
+        header = (
+            f"📢 *{escape_md(display_label)}*\n"
+            f"_{escape_md(guild_name)} \\| \\#{escape_md(real_channel_name)}_\n"
+            f"👤 *{escape_md(author)}*"
+        )
+    else:
+        header = (
+            f"*{escape_md(guild_name)}* \\| *\\#{escape_md(real_channel_name)}*\n"
+            f"👤 *{escape_md(author)}*"
+        )
     body = f"\n\n{escape_md(content)}" if content else ""
     text = header + body
 

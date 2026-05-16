@@ -14,6 +14,7 @@ Script buat mirror pesan dari server Discord ke bot Telegram lu, pakai **Discord
 - ✅ **Multi-channel** — mirror dari beberapa channel sekaligus
 - ✅ **Multi-server** — mirror dari beberapa server sekaligus
 - ✅ **Keyword filter** — cuma forward pesan yang mengandung kata tertentu
+- ✅ **Custom channel label** — kasih nama panggilan ke channel ID biar di Telegram jelas asal pesannya
 - ✅ Anti-loop (skip pesan dari akun sendiri secara default)
 - ✅ Auto-handle Telegram message limit (4096 char) dengan chunking
 - ✅ Fallback link kalau attachment >50MB (limit Telegram bot)
@@ -108,6 +109,7 @@ Notif `✅ Mirror aktif. Login sebagai <username>` bakal masuk ke Telegram lu = 
 | `DISCORD_CHANNEL_IDS` | ❌ | (kosong) | Channel ID yang di-mirror, pisah koma |
 | `DISCORD_GUILD_IDS` | ❌ | (kosong) | Server ID, dipakai kalau `DISCORD_CHANNEL_IDS` kosong |
 | `KEYWORDS` | ❌ | (kosong) | Filter keyword, pisah koma, case-insensitive |
+| `CHANNEL_LABELS` | ❌ | (kosong) | Custom nama panggilan per channel ID. Format: `id:label\|id:label` |
 | `MIRROR_SELF` | ❌ | `false` | `true` = pesan akun sendiri juga di-mirror |
 | `LOG_LEVEL` | ❌ | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
 
@@ -150,6 +152,23 @@ KEYWORDS=airdrop,whitelist,mint,free mint,giveaway
 DISCORD_CHANNEL_IDS=
 DISCORD_GUILD_IDS=
 KEYWORDS=
+```
+
+### Skenario 7: Custom label per channel (biar di Telegram jelas)
+```env
+DISCORD_CHANNEL_IDS=1234567890,9876543210,5555555555
+CHANNEL_LABELS=1234567890:NFT Talk|9876543210:Airdrop Hunters|5555555555:Alpha Calls
+```
+→ Di Telegram, pesan dari channel `1234567890` bakal punya header `📢 NFT Talk`  
+→ Pisah antar item pake **`|`** (pipe), pisah ID & label pake **`:`** (colon)  
+→ Kalau channel ga punya label, otomatis pake nama channel asli dari Discord  
+→ Contoh tampilan di Telegram:
+```
+📢 NFT Talk
+NamaServer | #nft-discussion-channel
+👤 username
+
+isi pesan...
 ```
 
 ---
