@@ -60,6 +60,15 @@ KEYWORDS: List[str] = [
     kw.strip().lower() for kw in _raw_keywords.split(",") if kw.strip()
 ]
 
+# Block keyword — pisah dengan koma. Case-insensitive.
+# Kalau pesan mengandung salah satu kata ini, langsung di-skip (ga di-mirror).
+# Kalau kosong = ga ada blocking.
+# Berguna buat skip sticker, emoji custom, gambar pixel art (yg dianggep nyangkut keyword), dll.
+_raw_block = os.getenv("BLOCK_KEYWORDS", "").strip()
+BLOCK_KEYWORDS: List[str] = [
+    kw.strip().lower() for kw in _raw_block.split(",") if kw.strip()
+]
+
 # Custom channel labels — kasih nama panggilan ke channel ID.
 # Format: <channel_id>:<label>|<channel_id>:<label>|...
 # Pisah antar item dengan `|` (pipe), pisah ID & label dengan `:` (colon).
@@ -128,30 +137,50 @@ def truncate(text: str, limit: int) -> str:
     return text[: limit - 1] + "…"
 
 
+def get_message_text_for_filter(message: discord.Message) -> str:
+    """Gabungkan semua teks dari pesan (content + embeds + stickers) buat keyword check."""
+    parts: List[str] = []
+    if message.content:
+        parts.append(message.content)
+
+    # Sticker name (kalau pesan cuma berupa sticker, content nya kosong tapi sticker punya nama)
+    for sticker in getattr(message, "stickers", []) or []:
+        sticker_name = getattr(sticker, "name", None)
+        if sticker_name:
+            parts.append(sticker_name)
+
+    # Embed text (title, description, fields)
+    for embed in message.embeds:
+        for v in [embed.title, embed.description]:
+            if v:
+                parts.append(v)
+        for field in embed.fields:
+            if field.name:
+                parts.append(field.name)
+            if field.value:
+                parts.append(field.value)
+
+    return " ".join(parts).lower()
+
+
+def is_blocked(message: discord.Message) -> bool:
+    """Cek apakah pesan mengandung salah satu BLOCK_KEYWORDS. Case-insensitive."""
+    if not BLOCK_KEYWORDS:
+        return False
+    text = get_message_text_for_filter(message)
+    return any(kw in text for kw in BLOCK_KEYWORDS)
+
+
 def matches_keywords(message: discord.Message) -> bool:
-    """Cek apakah pesan mengandung salah satu keyword. Case-insensitive."""
+    """Cek apakah pesan mengandung salah satu KEYWORDS. Case-insensitive.
+
+    Kalau pesan ga punya teks sama sekali (cuma sticker tanpa nama, attachment doang)
+    sementara KEYWORDS aktif, return False (di-skip).
+    """
     if not KEYWORDS:
         return True  # Ga ada filter keyword = semua lolos
-
-    # Cek di content pesan
-    content_lower = (message.content or "").lower()
-    for kw in KEYWORDS:
-        if kw in content_lower:
-            return True
-
-    # Cek juga di embed (title, description, field values)
-    for embed in message.embeds:
-        embed_text = " ".join(filter(None, [
-            embed.title,
-            embed.description,
-            *(f.name for f in embed.fields),
-            *(f.value for f in embed.fields),
-        ])).lower()
-        for kw in KEYWORDS:
-            if kw in embed_text:
-                return True
-
-    return False
+    text = get_message_text_for_filter(message)
+    return any(kw in text for kw in KEYWORDS)
 
 
 async def send_text(text: str) -> None:
@@ -318,6 +347,10 @@ def should_mirror(message: discord.Message) -> bool:
         if guild_id is None or guild_id not in MIRROR_GUILD_IDS:
             return False
 
+    # Block keyword filter — kalau ada kata yang di-block, langsung skip
+    if is_blocked(message):
+        return False
+
     # Filter by keyword
     if not matches_keywords(message):
         return False
@@ -329,10 +362,11 @@ def should_mirror(message: discord.Message) -> bool:
 async def on_ready():
     log.info("Logged in as %s (id=%s)", client.user, client.user.id)
     log.info(
-        "Filter: channels=%s, guilds=%s, keywords=%s",
+        "Filter: channels=%s, guilds=%s, keywords=%s, block=%s",
         MIRROR_CHANNEL_IDS or "ALL",
         MIRROR_GUILD_IDS or "ALL",
         KEYWORDS or "ALL (no filter)",
+        BLOCK_KEYWORDS or "(none)",
     )
     if CHANNEL_LABELS:
         log.info("Custom channel labels:")

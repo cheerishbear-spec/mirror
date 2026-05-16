@@ -109,6 +109,7 @@ Notif `✅ Mirror aktif. Login sebagai <username>` bakal masuk ke Telegram lu = 
 | `DISCORD_CHANNEL_IDS` | ❌ | (kosong) | Channel ID yang di-mirror, pisah koma |
 | `DISCORD_GUILD_IDS` | ❌ | (kosong) | Server ID, dipakai kalau `DISCORD_CHANNEL_IDS` kosong |
 | `KEYWORDS` | ❌ | (kosong) | Filter keyword, pisah koma, case-insensitive |
+| `BLOCK_KEYWORDS` | ❌ | (kosong) | Block keyword, pesan dengan kata ini di-skip walau lolos `KEYWORDS` |
 | `CHANNEL_LABELS` | ❌ | (kosong) | Custom nama panggilan per channel ID. Format: `id:label\|id:label` |
 | `MIRROR_SELF` | ❌ | `false` | `true` = pesan akun sendiri juga di-mirror |
 | `LOG_LEVEL` | ❌ | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
@@ -153,6 +154,17 @@ DISCORD_CHANNEL_IDS=
 DISCORD_GUILD_IDS=
 KEYWORDS=
 ```
+
+### Skenario 7: Allow keyword + Block keyword
+```env
+DISCORD_CHANNEL_IDS=1229820703662932048
+KEYWORDS=airdrop,mint,whitelist
+BLOCK_KEYWORDS=kekw,pepe,sticker,gm
+```
+→ Pesan harus mengandung `airdrop` / `mint` / `whitelist` (lolos KEYWORDS)  
+→ **TAPI** kalau pesan juga mengandung `kekw` / `pepe` / `sticker` / `gm`, langsung di-skip  
+→ Berguna buat blokir sticker yang namanya kebetulan nyangkut keyword (mis. sticker `mint-pepe`)  
+→ BLOCK_KEYWORDS dicek di: text pesan, nama sticker, dan isi embed
 
 ### Skenario 7: Custom label per channel (biar di Telegram jelas)
 ```env
