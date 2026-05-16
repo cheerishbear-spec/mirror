@@ -8,6 +8,7 @@ Fitur:
 - Download & forward attachment (photo / video / audio / document)
 - Support Discord embeds (title, description, fields, images, thumbnail)
 - Filter by channel ID atau guild (server) ID
+- Filter by keyword (case-insensitive)
 
 PERINGATAN:
 Script ini menggunakan Discord USER TOKEN (self-bot), yang MELANGGAR
@@ -20,7 +21,7 @@ import io
 import logging
 import os
 import sys
-from typing import Optional, Set
+from typing import List, Optional, Set
 
 import aiohttp
 import discord  # discord.py-self
@@ -49,6 +50,14 @@ MIRROR_GUILD_IDS: Set[int] = (
     if _raw_guilds
     else set()
 )
+
+# Keyword filter — pisah dengan koma. Case-insensitive.
+# Kalau kosong = mirror semua pesan (ga filter keyword).
+# Kalau diisi = cuma forward pesan yang mengandung salah satu keyword.
+_raw_keywords = os.getenv("KEYWORDS", "").strip()
+KEYWORDS: List[str] = [
+    kw.strip().lower() for kw in _raw_keywords.split(",") if kw.strip()
+]
 
 # Telegram limit untuk upload via bot: 50 MB. Kalau lebih, fallback ke link.
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
@@ -100,11 +109,36 @@ def truncate(text: str, limit: int) -> str:
     return text[: limit - 1] + "…"
 
 
+def matches_keywords(message: discord.Message) -> bool:
+    """Cek apakah pesan mengandung salah satu keyword. Case-insensitive."""
+    if not KEYWORDS:
+        return True  # Ga ada filter keyword = semua lolos
+
+    # Cek di content pesan
+    content_lower = (message.content or "").lower()
+    for kw in KEYWORDS:
+        if kw in content_lower:
+            return True
+
+    # Cek juga di embed (title, description, field values)
+    for embed in message.embeds:
+        embed_text = " ".join(filter(None, [
+            embed.title,
+            embed.description,
+            *(f.name for f in embed.fields),
+            *(f.value for f in embed.fields),
+        ])).lower()
+        for kw in KEYWORDS:
+            if kw in embed_text:
+                return True
+
+    return False
+
+
 async def send_text(text: str) -> None:
     """Kirim teks ke Telegram, handle limit 4096 char dengan chunking."""
     if not text:
         return
-    # Telegram hard limit: 4096 char per message
     CHUNK = 4000
     for i in range(0, len(text), CHUNK):
         try:
@@ -127,7 +161,6 @@ async def download_attachment(
             if resp.status != 200:
                 log.warning("Download gagal (%s) untuk %s", resp.status, url)
                 return None
-            # Cek Content-Length dulu biar ga buang bandwidth
             size = int(resp.headers.get("Content-Length") or 0)
             if size and size > MAX_UPLOAD_BYTES:
                 log.info("File kegedean (%s bytes), skip upload", size)
@@ -153,7 +186,6 @@ async def send_attachment(
 
     data = await download_attachment(session, url)
 
-    # Fallback: kalau gagal download / kegedean, kirim link aja
     if data is None:
         fallback = (
             f"📎 Attachment \\(ga bisa di\\-upload, kegedean/gagal\\): "
@@ -204,7 +236,6 @@ async def send_attachment(
             )
     except TelegramError as e:
         log.error("Gagal kirim attachment %s: %s", filename, e)
-        # Fallback ke link
         await send_text(
             f"📎 Attachment \\(gagal upload\\): "
             f"[{escape_md(filename)}]({escape_md(url)})"
@@ -255,14 +286,22 @@ def should_mirror(message: discord.Message) -> bool:
     """Cek apakah pesan ini termasuk yang mau di-mirror."""
     guild_id = message.guild.id if message.guild else None
 
+    # Skip pesan sendiri
     if message.author.id == client.user.id and not MIRROR_SELF:
         return False
 
+    # Filter by channel
     if MIRROR_CHANNEL_IDS:
-        return message.channel.id in MIRROR_CHANNEL_IDS
+        if message.channel.id not in MIRROR_CHANNEL_IDS:
+            return False
+    # Filter by guild (kalau channel filter kosong)
+    elif MIRROR_GUILD_IDS:
+        if guild_id is None or guild_id not in MIRROR_GUILD_IDS:
+            return False
 
-    if MIRROR_GUILD_IDS:
-        return guild_id is not None and guild_id in MIRROR_GUILD_IDS
+    # Filter by keyword
+    if not matches_keywords(message):
+        return False
 
     return True
 
@@ -271,9 +310,10 @@ def should_mirror(message: discord.Message) -> bool:
 async def on_ready():
     log.info("Logged in as %s (id=%s)", client.user, client.user.id)
     log.info(
-        "Filter: channels=%s, guilds=%s",
+        "Filter: channels=%s, guilds=%s, keywords=%s",
         MIRROR_CHANNEL_IDS or "ALL",
         MIRROR_GUILD_IDS or "ALL",
+        KEYWORDS or "ALL (no filter)",
     )
 
     # Validate: apakah channel ID yang dikasih beneran ada & bisa diakses?
@@ -305,9 +345,7 @@ async def on_ready():
         else:
             log.info("✅ Guild %s OK: %s (channels=%d)", gid, g.name, len(g.channels))
 
-    # Log semua guild yang akun ini join + subscribe biar Discord kirim event pesan.
-    # Discord user account kadang ga auto-receive pesan dari channel yang belum
-    # "dibuka" di client (lazy loading). Subscribe memaksa Discord kirim events.
+    # Subscribe ke guild biar Discord kirim event pesan
     log.info("Joined %d guilds total", len(client.guilds))
     for g in client.guilds:
         should_subscribe = (
@@ -344,7 +382,6 @@ async def on_message(message: discord.Message):
     author = str(message.author)
     content = message.content or ""
 
-    # Log cuma pesan yang ke-mirror aja biar ga spam
     log.info(
         "[MIRROR] %s #%s | %s: %s",
         guild_name,
